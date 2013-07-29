@@ -104,7 +104,7 @@
 
 			onError : function(error) {
 				this.state = 0;
-				this.rejectDeferreds("Unable to communication with WebSocket");
+				this.rejectDeferreds("Unable to communicate with WebSocket");
 			},
 
 			onMessage : function(event) {
@@ -113,7 +113,11 @@
 				// Check for conversationUid
 				var conversationUid = message.conversationUid;
 				if (conversationUid != undefined && this.messageDefereds[conversationUid] != undefined) {
-					this.messageDefereds[conversationUid].resolve([message]);
+					if (message.type == "error") {
+						this.messageDefereds[conversationUid].reject(message);
+					} else {
+						this.messageDefereds[conversationUid].resolve(message);
+					}
 					
 					return;
 				}
@@ -138,7 +142,7 @@
 					this.defered = null;
 				}
 				for (var key in this.messageDefereds) {
-					this.messageDefereds[key].reject([message]);
+					this.messageDefereds[key].reject(message);
 				}
 			},
 
@@ -184,45 +188,40 @@
 					'realtime/synchronizer',
 					function(e, r, module) {
 						var connector = loader('realtime/connector'),
-							$ = loader('jquery');
+							$ = loader('jquery'),
+							Backbone = loader('backbone');
 
 						var Synchronizer = module.exports = {
 							register : function(model) {
 								// Override the sync method of the model
-								// (whatever model
-								// or collection) to pass by websocket
+								// to sync by websocket
 								model.sync = this.sync;
 							},
 
 							/**
 							 * The sync method that will replace the original
-							 * Backbone sync.
+							 * Backbone.Model sync.
 							 * 
 							 */
-							sync : function(method, model, options) {
+							sync: function(method, model, options) {
 								if (!model.realtimeIdentifier) {
-									throw new Error(
-											'A "realtimeIdentifier" property must be specified');
+									throw new Error('A "realtimeIdentifier" property must be specified');
 								}
 
 								// Create the message object
 								message = {
-									'type' : model.realtimeIdentifier + ':'
-											+ method
-								}
+									'type' : model.realtimeIdentifier+':'+method
+								};
 
 								// Add the object data
-								if (method === 'read') {
-									if (!model.get("id")) {
-										throw new Error(
-												'A "id" attribute must be specified for read')
+								if (method == 'read') {
+									if (model instanceof Backbone.Model) {
+										message.data = {
+											'id' : model.get("id")
+										};
 									}
-
-									message.data = {
-										'id' : model.get("id")
-									};
 								} else {
-									message.data = model.attributes;
+									message.data = model.toJSON();
 								}
 								
 								// Create the defered
@@ -270,27 +269,30 @@
 
 	});
 
-	var regDeps = function(jQuery, JSON) {
+	var regDeps = function(jQuery, JSON, Backbone) {
 		loader.register('jquery', function(exports, require, module) {
 			module.exports = jQuery;
 		});
 		loader.register('json2', function(exports, require, module) {
 			module.exports = JSON;
 		});
+		loader.register('backbone', function(exports, require, module) {
+			module.exports = Backbone;
+		});
 	};
 
 	if (typeof define === 'function' && define.amd) {
-		define([ 'jquery', 'json2' ], function(jQuery, JSON) {
-			regDeps(jQuery, JSON);
+		define([ 'jquery', 'json2', 'backbone' ], function(jQuery, JSON, Backbone) {
+			regDeps(jQuery, JSON, Backbone);
 
 			return loader('realtime');
 		});
 	} else if (typeof module === 'object' && module && module.exports) {
-		regDeps(require('jquery'), require('json2'));
+		regDeps(require('jquery'), require('json2'), require('backbone'));
 
 		module.exports = loader('realtime');
 	} else {
-		regDeps(window.jQuery, window.JSON);
+		regDeps(window.jQuery, window.JSON, window.Backbone);
 
 		window.Backbone.Realtime = loader('realtime');
 	}
